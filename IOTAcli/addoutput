@@ -1,0 +1,66 @@
+#!/usr/bin/perl -w
+
+use strict;
+use warnings;
+use Math::BigFloat;
+use Data::Dumper;
+use IOTAlib;
+
+$| = 1;
+
+if (scalar(@ARGV) != 1 && scalar(@ARGV) != 2 && scalar(@ARGV) !=3)
+{
+    print "Usage:\n";
+    print "./addoutput <filename> [<address> [<value>]]\n";
+    print "\n";
+    print "<filename> is the filename of the temporary bundle data\n";
+    print "<address> is the IOTA address of output\n";
+    print "          If omitted this command only shows the bundle\n";
+    print "<value> is the value in IOTA's, what we will spend to this address. Must be positive\n";
+    print "        If omitted the rest of IOTA's from inputs in this bundle will be sent to this address.\n";
+    print "\n";
+    print "Example:\n";
+    print "\n";
+    print "./addoutput bundle.dat PYCUDAXRCRLDNSJZLWZEHXDDTAOK9OTZPWKKCDHSKLFEBRMPWRRTTVDSPKZ9CICLWJZEWQ9PVCUZTTZFP 112.5\n";
+    print "\n";
+    die;
+}
+
+if(scalar(@ARGV) > 1) {
+    die "Wrong IOTA address\n" unless length($ARGV[1]) == 81;
+}
+
+my $value = '      REST           ';
+if (scalar(@ARGV) == 3) {
+    my $v = Math::BigFloat->new($ARGV[2]);
+    $v = $v * 10000000000;
+    $v->bfround(0);
+    die "Wrong value - must be positive\n" unless $v > 0;
+
+    my $zeros = '00000000000';
+    $value = sprintf("%s", $v);
+    
+    if(length($value) < 11) {
+        $value = substr($zeros, 0, 11-length($value)) . $value;
+    }
+    
+    $value = sprintf("%20s", $value);
+    $value = substr($value, 0, 10) . '.' . substr($value, 10);
+}
+
+if(scalar(@ARGV) > 1) {
+    unless(open(FILE, '>>'.$ARGV[0])) {
+        die "Unable to open $ARGV[0]\n";
+    }
+
+    print FILE 'OUTPUT: ' . $ARGV[1] . ' <=== ' . $value . "\n";
+    close FILE;
+}
+
+unless(open(FILE, $ARGV[0])) {
+    die "Unable to open $ARGV[0]\n";
+}
+while(my $line = <FILE>) {
+    print $line;
+}
+close FILE;

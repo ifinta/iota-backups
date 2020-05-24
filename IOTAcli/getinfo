@@ -1,0 +1,46 @@
+#!/usr/bin/perl -w
+
+use strict;
+use warnings;
+use Data::Dumper;
+use IOTAlib;
+
+$| = 1;
+
+if (scalar(@ARGV) != 3)
+{
+    print "Usage:\n";
+    print "./getinfo <URL> <port> <password>\n";
+    print "\n";
+    print "<URL> is the URL of server with IRI\n";
+    print "<port> is the apiPort of IRI from configuration.iri\n";
+    print "<password> is the apiPassword from configuration.iri\n";
+    print "\n";
+    print "Example:\n";
+    print "\n";
+    print "./getinfo localhost 999 mypwd\n";
+    print "\n";
+    die;
+}
+
+# --------------------------------
+$IOTAlib::port = $ARGV[1];
+$IOTAlib::host = $ARGV[0];
+
+my $res = IOTAlib::POST({     'command' => 'getNodeInfo',
+                                'password' => $ARGV[2] });
+print Dumper($res);
+
+$res = IOTAlib::POST({     'command' => 'getNodesActivity',
+                             'password' => $ARGV[2] });
+print Dumper($res);
+
+my $tips = IOTAlib::POST({    'command' => 'getTransactionsToApprove',
+                                'password' => $ARGV[2] });
+print Dumper($tips);
+
+my $tinfo = IOTAlib::POST({    'command' => 'getSubtangleInfo',
+                                 'tips' => $tips->{'hashes'},
+                                'password' => $ARGV[2] });
+print Dumper($tinfo);
+

@@ -1,0 +1,3 @@
+#!/usr/bin/perl -w
+print "The community hasn't come to agreement on translation from ASCII to trytes yet. (CfB:on Ryver - IOTA Testing 22/03)"; 
+

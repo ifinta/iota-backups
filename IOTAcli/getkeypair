@@ -1,0 +1,38 @@
+#!/usr/bin/perl -w
+
+use strict;
+use warnings;
+use Data::Dumper;
+use Term::ReadKey;
+use IOTAlib;
+
+$| = 1;
+
+if (scalar(@ARGV) != 1 || !($ARGV[0] eq '--ask-for-seed'))
+{
+    print "Usage:\n";
+    print "./getkeypair --ask-for-seed\n";
+    print "\n";
+    print "Seed is a min. 30 character length string. Random lowercase letters and '9'...\n";
+    print "Store your seeds in secure place.\n";
+    print "\n";
+    print "Example:\n";
+    print "\n";
+    print "./getkeypair --ask-for-seed\n";
+    print "Seed?\n";
+    print "\n";
+    die;
+}
+
+# --------------------------------
+
+ReadMode ('noecho');
+print "\nSeed?:";
+my $seed = <STDIN>;
+chomp($seed);
+print "\n";
+ReadMode ('restore');
+
+my $res = IOTAlib::getkeypair($seed,0);
+
+print Dumper($res);

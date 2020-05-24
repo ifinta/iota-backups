@@ -1,0 +1,188 @@
+#!/usr/bin/perl -w
+
+use strict;
+use warnings;
+use Data::Dumper;
+use Math::BigFloat;
+use Term::ReadKey;
+use Storable qw(dclone);
+use IOTAlib;
+
+$| = 1;
+
+if (scalar(@ARGV) != 4 && scalar(@ARGV) != 5 && scalar(@ARGV) != 6)
+{
+    print "Usage:\n";
+    print "./sendtx <URL> <port> <password> <filename> [<weight>] [<securityLevel>]\n";
+    print "\n";
+    print "<URL> is the URL of server with IRI\n";
+    print "<port> is the apiPort of IRI from configuration.iri\n";
+    print "<password> is the apiPassword from configuration.iri\n";
+    print "<filename> is the filename of the temporary bundle data\n";
+    print "<weight> defines difficulty of PoW. default is 10\n";
+    print "<securityLevel> default is 40 - with bruteforce attack 2**64 step needed to crack key through signature\n";
+    print "\n";
+    print "Example:\n";
+    print "\n";
+    print "./sendtx localhost 999 mypwd bundle.dat 10\n";
+    print "\n";
+    die;
+}
+
+# --------------------------------
+$IOTAlib::port = $ARGV[1];
+$IOTAlib::host = $ARGV[0];
+
+my $weight = 10;
+my $secLevel = 40;
+if (scalar(@ARGV) >= 5) {
+    $weight = $ARGV[4];
+    
+    if(scalar(@ARGV) == 6) {
+        $secLevel = $ARGV[5];
+    }
+}
+
+my $json = {'command' => 'generateBundle',
+            'outputs' => [],
+            'inputs' =>  [],
+            'signaturesSecurityLevel' => $secLevel,
+            'approvedTransactions' => '',
+            'weight' => $weight,
+            'password' => $ARGV[2],
+            'messages' => []};
+
+unless(open(FILE, $ARGV[3])) {
+    die "Unable to open $ARGV[3]\n";
+}
+
+while(my $line = <FILE>) {
+    print $line;
+}
+close FILE;
+
+print "\nOk?[y/N]:";
+my $feedback = <STDIN>;
+chomp($feedback);
+
+die 'Aborted...' unless $feedback eq 'Y' || $feedback eq 'y' || $feedback eq 'yes';
+
+unless(open(FILE, $ARGV[3])) {
+    die "Unable to open $ARGV[3]\n";
+}
+
+my $rest_address = '';
+my $sum = Math::BigFloat->new(0);
+ 
+while(my $line = <FILE>) {
+    # generate... aus FILE
+    #                                                                                                    1         1
+    #          1         2         3         4         5         6         7         8         9         0         1   
+    #012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789
+    # INPUT: PYCUDAXRCRLDNSJZLWZEHXDDTAOK9OTZPWKKCDHSKLFEBRMPWRRTTVDSPKZ9CICLWJZEWQ9PVCUZTTZFP ===>        -12.3400000000
+    #OUTPUT: UVIDRCVKFJCFBVNDVYUCIGUTXNOTTAFDJHOJAVA9FXPOYUAP9FTUIARQEPLAMJZPDBFYCPLWHMYMIACFU <===       1234.3456000000
+    #OUTPUT: UVIDRCVKFJCFBVNDVYUCIGUTXNOTTAFDJHOJAVA9FXPOYUAP9FTUIARQEPLAMJZPDBFYCPLWHMYMIACFU <===  999999999.9999999999
+    #OUTPUT: UVIDRCVKFJCFBVNDVYUCIGUTXNOTTAFDJHOJAVA9FXPOYUAP9FTUIARQEPLAMJZPDBFYCPLWHMYMIACFU <===       REST           
+    # INPUT: UVIDRCVKFJCFBVNDVYUCIGUTXNOTTAFDJHOJAVA9FXPOYUAP9FTUIARQEPLAMJZPDBFYCPLWHMYMIACFU ===>     -WHOLE           
+
+    my $type = substr($line, 2, 1);
+    my $address = substr($line, 8, 81);
+    my $value = substr($line, 95, 21);
+    my $v = 0;
+
+    if($type eq 'N') {
+        if(substr($value, 9, 1) eq 'E') {
+            my $tips = IOTAlib::POST({ 'command' => 'getTransactionsToApprove', 
+                                         'password' => $ARGV[2] });
+
+            my $res = IOTAlib::POST({ 'command' => 'getBalances',
+                                        'addresses' => [$address],
+                                        'tips' => $tips->{'hashes'},
+                                        'password' => $ARGV[2] });
+
+            my $arr = $res->{'balances'};
+            die 'Issue with INPUT. Address is ' . $address unless scalar(@$arr) == 1;
+
+            my $balance = Math::BigFloat->new(0);
+            $arr = @$arr[0]->{'partialBalances'};
+            for(my $i = 0; $i < scalar(@$arr); $i++) {
+                if(@$arr[$i]->{'persistence'} == 100) {
+                    $balance += Math::BigFloat->new(@$arr[$i]->{'value'});
+                }
+            }            
+
+            $v = '-' . sprintf("%s", Math::BigFloat->new($balance));
+        }
+        else {
+            $v = sprintf("%s", Math::BigFloat->new($value) * 10000000000);
+        }
+        
+        die 'Input balance with persistence 100 is 0. Address is ' . $address unless Math::BigFloat->new($v) < 0;
+        
+        ReadMode ('noecho');
+        print "\n$address corresponding key?:";
+        my $key = <STDIN>;
+        chomp($key);
+        print "\n";
+        ReadMode ('restore');
+        
+        die 'Not a valid key...' unless length($key) == 729;
+        
+        my $arr = $json->{'inputs'};
+        push(@$arr, {'key' => $key, 'value' => $v});
+    }
+
+    if($type eq 'T') {
+        if(substr($value, 9, 1) eq 'T') {
+            die "Only one OUTPUT with 'REST' attribute accepted..." unless length($rest_address) < 81;
+            $rest_address = $address;
+            $v = '0';
+        }
+        else {
+            $v = sprintf("%s", Math::BigFloat->new($value) * 10000000000);
+            my $arr = $json->{'outputs'};
+            push(@$arr, {'address' => $address, 'value' => $v});
+        }
+    }
+    
+    $sum += Math::BigFloat->new($v);
+}
+
+if(length($rest_address) == 81) {
+    die "No REST value... sum = $sum" unless $sum < 0;
+    my $v = sprintf("%s", -$sum);
+    my $arr = $json->{'outputs'};
+    push(@$arr, {'address' => $rest_address, 'value' => $v});
+}
+else {
+    die "Attention... sum = $sum" unless $sum == 0;
+}
+
+close FILE;
+
+my $tips = IOTAlib::POST({ 'command' => 'getTransactionsToApprove', 
+                             'password' => $ARGV[2] });
+
+$json->{'approvedTransactions'} = $tips->{'hashes'};
+
+my $jsoncopy = dclone($json);
+my $arr = $jsoncopy->{'inputs'};
+for(my $i = 0; $i < scalar(@$arr); $i++) {
+    my $key = @$arr[$i]->{'key'};
+    @$arr[$i]->{'key'} = substr($key, 0, 10) . "..." . substr($key, length($key) - 10);
+}
+print Dumper($jsoncopy);
+
+print "\n\nGenerating Bundle. It may take some time... Please, be patient.\n";
+
+my $bundle = IOTAlib::POST($json);
+
+print Dumper($bundle);
+
+print "Broadcasting transactions...\n";
+
+my $tx = IOTAlib::POST(  {'command' => 'broadcastTransactions', 
+                            'trytes' => $bundle->{'trytes'},
+                            'password' => $ARGV[2]});
+
+print Dumper($tx);
